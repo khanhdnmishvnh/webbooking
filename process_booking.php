@@ -1,6 +1,7 @@
 <?php
 include("connect.inp");
 require("Mailer.php");
+require("QRcode.php");
 
 $data = json_decode(file_get_contents("php://input"), true);
 
@@ -12,109 +13,87 @@ function console_log($output, $with_script_tags = true) {
     echo $js_code;
 }
 
-if (isset($data['transaction_id'])) {
+if ($data) {
     console_log('Đang xử lý booking', true);
 
-    // Bước 1: Thêm hoặc cập nhật thông tin khách hàng
-    $customer_name = $data['name'];
+    // Kiểm tra kết nối
+    if (!$con) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Database connection failed']);
+        exit();
+    }
+
+    // 1. Thêm hoặc lấy thông tin khách hàng
     $customer_email = $data['email'];
     $customer_phone = $data['phone'];
-    $customer_address = $data['address'];
-
-    // Kiểm tra khách hàng đã tồn tại hay chưa (theo email hoặc số điện thoại)
     $stmt = $con->prepare("SELECT user_id FROM customer_details WHERE email = ? OR so_dien_thoai = ?");
     $stmt->bind_param('ss', $customer_email, $customer_phone);
     $stmt->execute();
     $result = $stmt->get_result();
 
     if ($result->num_rows > 0) {
-        // Khách hàng đã tồn tại, lấy user_id
-        $customer_data = $result->fetch_assoc();
-        $user_id = $customer_data['user_id'];
+        $user_id = $result->fetch_assoc()['user_id'];
     } else {
-        // Thêm khách hàng mới
         $stmt = $con->prepare("INSERT INTO customer_details (ho_ten, email, so_dien_thoai, dia_chi) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param('ssss', $customer_name, $customer_email, $customer_phone, $customer_address);
-
+        $stmt->bind_param('ssss', $data['name'], $customer_email, $customer_phone, $data['address']);
         if ($stmt->execute()) {
-            $user_id = $stmt->insert_id; // Lấy user_id vừa thêm
+            $user_id = $stmt->insert_id;
         } else {
             http_response_code(500);
             echo json_encode(['error' => 'Failed to save customer details']);
             exit();
         }
     }
-
     $stmt->close();
-// Bước 3: Lưu thông tin thanh toán vào bảng payment_details
-$trans_id = uniqid('TXN_'); // Tạo mã giao dịch duy nhất
-$payment_status = 'Completed'; // Trạng thái thanh toán (hoàn thành)
-$payment_method = 'PayPal'; // Phương thức thanh toán
-$payment_date = date('Y-m-d H:i:s'); // Ngày giờ thanh toán hiện tại
 
-$stmt = $con->prepare("INSERT INTO payment_details (booking_id, amount, payment_status, payment_method, trans_id, payment_date) VALUES (?, ?, ?, ?, ?, ?)");
-$stmt->bind_param(
-    'sdssss',
-    $booking_id,        // Mã đặt phòng (booking_id)
-    $data['payment'], // Số tiền (USD)
-    $payment_status,  // Trạng thái thanh toán
-    $payment_method,  // Phương thức thanh toán
-    $trans_id,        // Mã giao dịch
-    $payment_date     // Ngày giờ thanh toán
-);
-
-if ($stmt->execute()) {
-    // Thanh toán được lưu thành công
-    console_log('Payment details saved successfully', true);
-} else {
-    http_response_code(500);
-    echo json_encode(['error' => 'Failed to save payment details']);
-    exit();
-}
-
-$stmt->close();
-
-    // Bước 2: Thêm bản ghi đặt phòng vào bảng booking_order
+    // 2. Thêm thông tin booking
     $stmt = $con->prepare("INSERT INTO booking_order (room_id, check_in, check_out, booking_status, order_id, user_id) VALUES (?, ?, ?, ?, ?, ?)");
     $room_id = $data['room_id'];
     $check_in = $data['checkin'];
     $check_out = $data['checkout'];
     $booking_status = $data['booking_status'];
-    $order_id = uniqid('ORD_'); // Mã đặt phòng duy nhất
+    $order_id = uniqid('ORD_');
 
-    $stmt->bind_param(
-        'issssi',
-        $room_id,
-        $check_in,
-        $check_out,
-        $booking_status,
-        $order_id,
-        $user_id
-    );
-
+    $stmt->bind_param('issssi', $room_id, $check_in, $check_out, $booking_status, $order_id, $user_id);
     if ($stmt->execute()) {
-        // Booking và thông tin khách hàng đã được lưu
-        console_log('Booking created successfully', true);
-
-        // Gửi email xác nhận nếu cần thiết
-        $mailer = new Mailer();
-        $mail = $mailer->sendConfirmation($customer_email, $room_name, $check_in, $check_out, $order_id, $customer_name, $customer_phone, $customer_address, $data['payment']);
-
-        if ($mail) {
-            http_response_code(200);
-            echo json_encode(['message' => 'Booking created and email sent successfully', 'order_id' => $order_id]);
-        } else {
-            http_response_code(500);
-            echo json_encode(['error' => 'Failed to send confirmation email']);
-        }
+        $booking_id = $stmt->insert_id;
     } else {
         http_response_code(500);
         echo json_encode(['error' => 'Failed to save booking details']);
+        exit();
     }
-
     $stmt->close();
+
+    // 3. Thêm thông tin thanh toán
+    $stmt = $con->prepare("INSERT INTO payment_details (booking_id, amount, payment_status, payment_method, trans_id, payment_date) VALUES (?, ?, ?, ?, ?, ?)");
+    $trans_id = uniqid('TXN_');
+    $payment_status = 'Completed';
+    $payment_method = 'PayPal';
+    $payment_date = date('Y-m-d H:i:s');
+    $stmt->bind_param('sdssss', $booking_id, $data['payment'], $payment_status, $payment_method, $trans_id, $payment_date);
+
+    if (!$stmt->execute()) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to save payment details']);
+        exit();
+    }
+    $stmt->close();
+
+    // 4. Tạo QR code và gửi email
+    $qrCode = new QRGenerator();
+    $qrPath = $qrCode->generate($order_id, $data);
+    $mailer = new Mailer();
+    $mail = $mailer->sendConfirmation($customer_email, $data['room_name'], $check_in, $check_out, $order_id, $data['name'], $data['phone'], $data['address'], $data['payment'], $qrPath, _DIR_ . "/images/default.jpg");
+
+    if ($mail) {
+        http_response_code(200);
+        echo json_encode(['message' => 'Booking created and email sent successfully', 'order_id' => $order_id]);
+    } else {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to send confirmation email']);
+    }
 } else {
-    http_response_code(400); // Yêu cầu không hợp lệ
+    http_response_code(400);
     echo json_encode(['error' => 'Invalid request']);
 }
 ?>
