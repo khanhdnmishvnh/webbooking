@@ -134,21 +134,21 @@ class Mailer {
             </html>';
 
             $mail->Body = $mailContent;
-
-            // // Đính kèm mã QR (nếu có)
-            // if (!empty($qrPath)) {
-            //     $mail->addAttachment($qrPath);
-            // }
-
-            // Gửi email
-            return $mail->send();      
             
-            // Đính kèm mã QR
-            // $mail->addAttachment($qrCodePath);
-
-        } catch (Exception $e) {
-            echo "Mailer Error: {$mail->ErrorInfo}";
-            return false;
-        }
-    }    
-}
+                //Tạo ảnh vào email
+                if (!empty($roomImagePath) && file_exists($roomImagePath)) {
+                    $mail->addEmbeddedImage($roomImagePath, 'room_image'); // Attach image and give it an ID
+                }
+                // Đính kèm mã QR (nếu có)
+                if (!empty($qrPath)) {
+                    $mail->addAttachment($qrPath);
+                }
+                // Gửi email
+                return $mail->send();  
+    
+            } catch (Exception $e) {
+                echo "Mailer Error: {$mail->ErrorInfo}";
+                return false;
+            }
+        }    
+    }

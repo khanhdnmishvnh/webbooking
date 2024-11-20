@@ -50,15 +50,17 @@ if (isset($data['transaction_id'])) {
 $trans_id = uniqid('TXN_'); // Tạo mã giao dịch duy nhất
 $payment_status = 'Completed'; // Trạng thái thanh toán (hoàn thành)
 $payment_method = 'PayPal'; // Phương thức thanh toán
+$payment_date = date('Y-m-d H:i:s'); // Ngày giờ thanh toán hiện tại
 
-$stmt = $con->prepare("INSERT INTO payment_details (booking_id, amount, payment_status, payment_method, trans_id) VALUES (?, ?, ?, ?, ?)");
+$stmt = $con->prepare("INSERT INTO payment_details (booking_id, amount, payment_status, payment_method, trans_id, payment_date) VALUES (?, ?, ?, ?, ?, ?)");
 $stmt->bind_param(
-    'sdsss',
-    $order_id,        // Mã đặt phòng (booking_id)
+    'sdssss',
+    $booking_id,        // Mã đặt phòng (booking_id)
     $data['payment'], // Số tiền (USD)
     $payment_status,  // Trạng thái thanh toán
     $payment_method,  // Phương thức thanh toán
-    $trans_id         // Mã giao dịch
+    $trans_id,        // Mã giao dịch
+    $payment_date     // Ngày giờ thanh toán
 );
 
 if ($stmt->execute()) {
@@ -71,6 +73,7 @@ if ($stmt->execute()) {
 }
 
 $stmt->close();
+
     // Bước 2: Thêm bản ghi đặt phòng vào bảng booking_order
     $stmt = $con->prepare("INSERT INTO booking_order (room_id, check_in, check_out, booking_status, order_id, user_id) VALUES (?, ?, ?, ?, ?, ?)");
     $room_id = $data['room_id'];
