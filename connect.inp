@@ -2,7 +2,7 @@
     $host="localhost";
     $user="root";
     $pass="";
-    $db="kt2_webbooking";
+    $db="kiemtra2_webbooking";
     $con=new mysqli($host,$user,$pass,$db);
     if(!$con){
         die("Lỗi kết nối".$con->connect_error);
